@@ -11,10 +11,12 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, String, Float, Integer, Boolean, DateTime, Text, select, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 BASE_CORE_VERSION = "7.0.0"
 BOT_PROFILE = "NOVA_MEME_HUNTER"
 MEME_HUNTER_MODE = True
+APEX_EDGE_MODE = True
+APEX_EDITION = "APEX_EDGE"
 DEX = "https://api.dexscreener.com"
 VELOCITY_DATA = "https://data.velocity.exchange"
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
@@ -42,6 +44,24 @@ UNIVERSE_DEX_CHAINS = {x.strip().lower() for x in os.getenv(
 TRUSTED_PERP_SOURCES = {"VELOCITY", "BINANCE_FUTURES"}
 MAJOR_ASSETS = {"BTC","ETH","SOL","BNB","XRP","ADA","DOGE","AVAX","LINK","SUI","TRX","TON","DOT","LTC","BCH","APT","NEAR","ATOM","UNI","AAVE"}
 MEME_ASSETS = {"DOGE","SHIB","PEPE","BONK","WIF","FLOKI","BOME","BRETT","MOG","TURBO","NEIRO","POPCAT","PNUT","MEME"}
+STABLE_OR_WRAPPED_ASSETS = {
+    "USDT","USDC","FDUSD","TUSD","DAI","USDE","USDP","PYUSD","USD1","EUR","EURC",
+    "WBTC","WETH","STETH","WSTETH","CBETH"
+}
+
+# V1.1 APEX EDGE — local deterministic intelligence. No paid AI/API dependency.
+APEX_ENABLED = os.getenv("NOVA_APEX_EDGE", "true").lower() in ("1","true","yes","on")
+APEX_STRICT_MODE = os.getenv("NOVA_APEX_STRICT", "true").lower() in ("1","true","yes","on")
+APEX_MIN_SCORE = max(70.0, min(92.0, float(os.getenv("NOVA_APEX_MIN_SCORE", "77"))))
+APEX_MIN_SNIPER_SCORE = max(72.0, min(94.0, float(os.getenv("NOVA_APEX_MIN_SNIPER_SCORE", "80"))))
+APEX_MIN_CEX_SCORE = max(68.0, min(92.0, float(os.getenv("NOVA_APEX_MIN_CEX_SCORE", "75"))))
+APEX_MIN_DEX_LIQ = max(20000.0, float(os.getenv("NOVA_APEX_MIN_DEX_LIQ", "60000")))
+APEX_MIN_SNIPER_LIQ = max(15000.0, float(os.getenv("NOVA_APEX_MIN_SNIPER_LIQ", "45000")))
+APEX_MIN_BUY_PRESSURE = max(52.0, min(80.0, float(os.getenv("NOVA_APEX_MIN_BUY_PRESSURE", "63"))))
+APEX_MIN_VOLUME_ACCEL = max(45.0, min(85.0, float(os.getenv("NOVA_APEX_MIN_VOLUME_ACCEL", "55"))))
+APEX_MAX_CHASE_M5 = max(2.0, min(12.0, float(os.getenv("NOVA_APEX_MAX_CHASE_M5", "6.5"))))
+APEX_MAX_CEX_M5 = max(1.0, min(10.0, float(os.getenv("NOVA_APEX_MAX_CEX_M5", "5.0"))))
+APEX_RECENT_FEEDBACK_TRADES = max(4, min(30, int(float(os.getenv("NOVA_APEX_FEEDBACK_TRADES", "10")))))
 
 def meme_hunter_candidate(c):
     """Keep V7.0 spot/meme logic, reject the separate major/perp mandate."""
@@ -50,6 +70,9 @@ def meme_hunter_candidate(c):
     symbol=str(c.get("symbol") or "").upper().strip()
     # Keep named meme assets even if they also appear in the broad major list (e.g. DOGE).
     if symbol in MAJOR_ASSETS and symbol not in MEME_ASSETS:
+        return False
+    # Stablecoins / wrapped majors are not meme-hunt targets and created noisy signals in V1.0.
+    if symbol in STABLE_OR_WRAPPED_ASSETS:
         return False
     return True
 
@@ -284,13 +307,13 @@ DEFAULTS = {
     "start_balance": os.getenv("PAPER_START_BALANCE", "5000"),
     "bot_enabled": "false",
     "killed": "false",
-    "risk_pct": "0.75",
-    "max_position_pct": "10",
-    "max_positions": "4",
+    "risk_pct": "0.35",
+    "max_position_pct": "6",
+    "max_positions": "2",
     "stop_loss_pct": "4",
     "daily_loss_limit_pct": "3",
-    "min_pump_score": "72",
-    "min_scalp_score": "74",
+    "min_pump_score": "78",
+    "min_scalp_score": "78",
     "min_long_score": "72",
     "min_short_score": "72",
     "perp_leverage": "1.0",
@@ -348,11 +371,11 @@ DEFAULTS = {
     "scratch_after_minutes": "8",
     "scratch_loss_pct": "0.75",
     "scratch_min_peak_pct": "0.50",
-    "global_equity_guard_pct": "2.50",
-    "capital_shield_min_liquidity": "50000",
-    "capital_shield_min_market_quality": "65",
+    "global_equity_guard_pct": "1.50",
+    "capital_shield_min_liquidity": "70000",
+    "capital_shield_min_market_quality": "68",
     "max_spot_position_liquidity_pct": "0.75",
-    "max_spot_abs_m5_pct": "25",
+    "max_spot_abs_m5_pct": "10",
 
     # Manual engine controls. OFF blocks new entries only; existing positions
     # remain under exit/risk management.
@@ -363,12 +386,12 @@ DEFAULTS = {
     "paid_trade_stream_enabled": "true",
 
     "sniper_enabled": "true",
-    "min_sniper_score": "78",
+    "min_sniper_score": "82",
     "sniper_scan_interval_sec": "20",
-    "sniper_min_buy_pressure": "60",
-    "sniper_min_volume_accel": "52",
+    "sniper_min_buy_pressure": "64",
+    "sniper_min_volume_accel": "56",
     "sniper_min_m5_pct": "0.30",
-    "sniper_max_m5_pct": "12",
+    "sniper_max_m5_pct": "6.5",
     "sniper_max_age_minutes": "360",
     "sniper_max_positions": "1",
     "sniper_risk_multiplier": "0.50",
@@ -420,12 +443,12 @@ DEFAULTS = {
     "governor_pause_minutes": "90",
     "governor_loss_streak_limit": "2",
     "governor_loss_streak_pause_minutes": "30",
-    "survival_daily_loss_pct": "1.50",
-    "survival_combined_loss_pct": "1.50",
+    "survival_daily_loss_pct": "1.00",
+    "survival_combined_loss_pct": "1.00",
     "recovery_spot_liquidity_position_cap_pct": "0.50",
     "recovery_sniper_loss_cap_pct": "0.75",
-    "recovery_scalp_loss_cap_pct": "1.25",
-    "recovery_pump_loss_cap_pct": "1.75",
+    "recovery_scalp_loss_cap_pct": "0.90",
+    "recovery_pump_loss_cap_pct": "1.20",
     "recovery_perp_loss_cap_pct": "1.25",
 
     "selective_entry_router_enabled": "true",
@@ -434,40 +457,40 @@ DEFAULTS = {
     "router_min_signal_margin": "2",
     "router_min_buy_pressure": "55",
     "router_max_soft_m5_pct": "12",
-    "router_soft_risk_multiplier": "0.50",
-    "router_max_soft_entries_per_hour": "2",
+    "router_soft_risk_multiplier": "0.25",
+    "router_max_soft_entries_per_hour": "1",
 
     # V6.6 Launch Sniper — first-seconds PAPER engine.
     "launch_sniper_enabled": "true",
     "launch_max_active_watch": "8",
     "launch_watch_ttl_sec": "15",
-    "launch_entry_max_age_sec": "18",
-    "launch_min_age_sec": "0.35",
-    "launch_min_score": "74",
-    "launch_min_events_2s": "3",
-    "launch_min_unique_buyers_2s": "2",
-    "launch_min_buy_pressure_2s": "68",
-    "launch_min_buy_sol_2s": "0.15",
-    "launch_max_top_buyer_share_pct": "65",
-    "launch_max_mcap_multiple": "1.85",
-    "launch_min_mcap_multiple": "0.90",
+    "launch_entry_max_age_sec": "10",
+    "launch_min_age_sec": "0.60",
+    "launch_min_score": "82",
+    "launch_min_events_2s": "5",
+    "launch_min_unique_buyers_2s": "4",
+    "launch_min_buy_pressure_2s": "76",
+    "launch_min_buy_sol_2s": "0.25",
+    "launch_max_top_buyer_share_pct": "45",
+    "launch_max_mcap_multiple": "1.45",
+    "launch_min_mcap_multiple": "0.98",
     "launch_creator_window_sec": "600",
     "launch_creator_max_tokens": "3",
     "launch_duplicate_symbol_max": "2",
-    "launch_confirmation_required": "2",
-    "launch_confirmation_window_sec": "1.6",
+    "launch_confirmation_required": "3",
+    "launch_confirmation_window_sec": "2.2",
     "launch_confirmation_gap_ms": "150",
     "launch_max_positions": "1",
-    "launch_max_position_pct": "0.50",
-    "launch_max_entries_per_hour": "4",
-    "launch_raw_stop_pct": "1.00",
-    "launch_max_net_loss_pct": "7.00",
-    "launch_scratch_after_sec": "3.0",
-    "launch_scratch_peak_pct": "1.0",
-    "launch_scratch_loss_pct": "4.5",
-    "launch_max_hold_sec": "22",
-    "launch_flow_reversal_after_sec": "1.0",
-    "launch_flow_reversal_pressure": "44",
+    "launch_max_position_pct": "0.20",
+    "launch_max_entries_per_hour": "2",
+    "launch_raw_stop_pct": "0.65",
+    "launch_max_net_loss_pct": "3.00",
+    "launch_scratch_after_sec": "1.25",
+    "launch_scratch_peak_pct": "0.75",
+    "launch_scratch_loss_pct": "1.75",
+    "launch_max_hold_sec": "10",
+    "launch_flow_reversal_after_sec": "0.45",
+    "launch_flow_reversal_pressure": "52",
     "launch_protocol_fee_bps": "125",
     "launch_interface_fee_bps": "50",
     "launch_slippage_floor_bps": "35",
@@ -653,6 +676,8 @@ runtime = {
     "pulse_confirmations": {},
     "governor_pauses": {},
     "governor_last_reason": {},
+    "governor_recovery": {},
+    "apex_feedback_cache": {},
     "router_soft_entry_times": [],
     "router_last_entry": None,
     "router_soft_entries": 0,
@@ -1996,7 +2021,180 @@ def signal_quality(c,strategy,signal_score):
     quality*=0.70+0.30*route["quality"]/100
     quality*=0.80+0.20*clamp(sq,0,100)/100
     quality*=0.85+0.15*clamp(market,0,100)/100
+    if APEX_ENABLED and not str(strategy).startswith("PERP_"):
+        ai=apex_intelligence(c,strategy)
+        quality*=0.78+0.22*clamp(nz(ai.get("score")),0,100)/100
     return round(clamp(quality,0,100),2),route
+
+def apex_strategy_feedback(strategy):
+    """Bounded feedback from recent PAPER results; cached so dashboard polling stays cheap."""
+    now=time.time()
+    cache=runtime.setdefault("apex_feedback_cache",{})
+    cached=cache.get(strategy)
+    if cached and now-nz(cached.get("ts"))<8:
+        return cached.get("data") or {"score":50.0,"samples":0,"state":"WARMUP","stats":{}}
+    stats=strategy_recent_trade_stats(strategy, APEX_RECENT_FEEDBACK_TRADES)
+    n=int(stats.get("samples") or 0)
+    if n<=0:
+        result={"score":50.0,"samples":0,"state":"WARMUP","stats":stats}
+    else:
+        wr=nz(stats.get("win_rate"),0)
+        pf=nz(stats.get("profit_factor"),0)
+        exp=nz(stats.get("expectancy_pct"),0)
+        # Small samples stay close to neutral. More evidence earns more weight.
+        evidence=clamp(n/10.0,0.15,1.0)
+        raw=50 + (wr-50)*0.30 + clamp((pf-1.0)*18,-18,22) + clamp(exp*2.2,-18,18)
+        score=50+(raw-50)*evidence
+        state="POSITIVE" if score>=58 else "NEGATIVE" if score<=43 else "NEUTRAL"
+        result={"score":round(clamp(score,20,80),1),"samples":n,"state":state,"stats":stats}
+    cache[strategy]={"ts":now,"data":result}
+    return result
+
+
+def apex_intelligence(c,strategy=None):
+    """Fast local ensemble for early-move selection and anti-chase filtering."""
+    strategy=strategy or suggested_strategy(c)
+    source=str(c.get("data_source") or "")
+    symbol=str(c.get("symbol") or "?").upper()
+    is_cex=source.startswith("BINANCE_")
+    signal=nz(strategy_entry_score(strategy,c))
+    market=nz(c.get("market_risk"),50)
+    liq=nz(c.get("liquidity"))
+    pressure=nz(c.get("buy_pressure"),50)
+    accel=nz(c.get("volume_accel"),50)
+    m5=nz(c.get("m5")); h1=nz(c.get("h1")); h24=nz(c.get("h24"))
+    buys=max(0,int(nz(c.get("buys_m5"))))
+    sells=max(0,int(nz(c.get("sells_m5"))))
+    tx=buys+sells
+
+    liq_score=clamp(25+20*math.log10(max(liq,1)/1000.0),0,100)
+    tx_score=clamp(20+18*math.log10(max(tx,1)),0,100) if not is_cex else clamp(nz(c.get("volume_accel"),50),0,100)
+
+    # Highest score before the move becomes vertical. Flat-to-gently-positive can still qualify.
+    if -0.10 <= m5 <= 0.20:
+        early_momentum=72
+    elif 0.20 < m5 <= 2.5:
+        early_momentum=100
+    elif 2.5 < m5 <= 4.5:
+        early_momentum=88
+    elif 4.5 < m5 <= APEX_MAX_CHASE_M5:
+        early_momentum=68
+    elif m5 < -0.10:
+        early_momentum=max(5,45+m5*12)
+    else:
+        early_momentum=max(5,60-(m5-APEX_MAX_CHASE_M5)*12)
+
+    # CEX spot has no DEX buy/sell transaction split in this adapter, so do not fake order flow.
+    flow_score=(pressure*.48+accel*.32+tx_score*.20) if not is_cex else (accel*.55+early_momentum*.45)
+    security=c.get("security") or {}
+    sec_score=100 if security.get("status")=="N/A" else nz(security.get("score"),65 if security.get("status")=="UNKNOWN" else 50)
+    feedback=apex_strategy_feedback(strategy)
+
+    chase_risk=0.0
+    chase_limit=APEX_MAX_CEX_M5 if is_cex else APEX_MAX_CHASE_M5
+    if m5>chase_limit:
+        chase_risk += min(35,(m5-chase_limit)*7)
+    if h1>35:
+        chase_risk += min(15,(h1-35)*.35)
+    if h24>80:
+        chase_risk += min(10,(h24-80)*.12)
+    if not is_cex and pressure<52 and m5>1:
+        chase_risk += 12
+
+    pre_move=clamp(early_momentum*.30+flow_score*.30+liq_score*.16+market*.14+sec_score*.10-chase_risk,0,100)
+    score=clamp(
+        signal*.25 + pre_move*.27 + flow_score*.15 + market*.10 + liq_score*.08 +
+        sec_score*.07 + nz(feedback.get("score"),50)*.08 - chase_risk*.30,
+        0,100
+    )
+
+    reasons=[]
+    if pre_move>=78: reasons.append("pre-move structure")
+    if not is_cex and pressure>=APEX_MIN_BUY_PRESSURE: reasons.append("buy flow")
+    if accel>=APEX_MIN_VOLUME_ACCEL: reasons.append("volume acceleration")
+    if m5>chase_limit: reasons.append("chase risk")
+    if feedback.get("state")=="NEGATIVE": reasons.append("negative recent edge")
+    if symbol in STABLE_OR_WRAPPED_ASSETS: reasons.append("non-target asset")
+
+    return {
+        "enabled":bool(APEX_ENABLED),"score":round(score,1),"pre_move_score":round(pre_move,1),
+        "flow_score":round(flow_score,1),"early_momentum_score":round(early_momentum,1),
+        "chase_risk":round(chase_risk,1),"feedback":feedback,"source_kind":"CEX" if is_cex else "DEX",
+        "reasons":reasons,"signal":round(signal,1),"symbol":symbol
+    }
+
+
+def apex_required_score(strategy,c):
+    base=APEX_MIN_SNIPER_SCORE if strategy=="SNIPER_LONG" else (APEX_MIN_CEX_SCORE if str(c.get("data_source") or "").startswith("BINANCE_") else APEX_MIN_SCORE)
+    fb=apex_strategy_feedback(strategy)
+    if fb.get("state")=="NEGATIVE": base+=3
+    return min(94.0,base)
+
+
+def apex_entry_gate(c,strategy):
+    if not APEX_ENABLED or str(strategy).startswith("PERP_") or strategy=="LAUNCH_SNIPER":
+        return True,"ok",apex_intelligence(c,strategy)
+    symbol=str(c.get("symbol") or "").upper().strip()
+    intel=apex_intelligence(c,strategy)
+    if symbol in STABLE_OR_WRAPPED_ASSETS:
+        return False,"APEX non-target stable/wrapped asset",intel
+    if (c.get("security") or {}).get("hard_block"):
+        return False,"APEX security hard block",intel
+    required=apex_required_score(strategy,c)
+    if nz(intel.get("score"))<required:
+        return False,f"APEX score {nz(intel.get('score')):.1f} < {required:.1f}",intel
+
+    source=str(c.get("data_source") or "")
+    is_cex=source.startswith("BINANCE_")
+    m5=nz(c.get("m5"));h24=nz(c.get("h24"))
+    if is_cex:
+        if m5 < -0.10:
+            return False,"APEX CEX momentum not confirmed",intel
+        if m5 > APEX_MAX_CEX_M5:
+            return False,"APEX anti-chase CEX",intel
+        if h24 < -12:
+            return False,"APEX CEX daily trend weak",intel
+        if nz(c.get("quote_volume_24h")) and nz(c.get("quote_volume_24h")) < UNIVERSE_MIN_CEX_QUOTE_VOLUME*1.5:
+            return False,"APEX CEX volume too thin",intel
+        return True,"ok",intel
+
+    min_liq=APEX_MIN_SNIPER_LIQ if strategy=="SNIPER_LONG" else APEX_MIN_DEX_LIQ
+    if nz(c.get("liquidity"))<min_liq:
+        return False,"APEX liquidity below premium floor",intel
+    if nz(c.get("buy_pressure"),50)<APEX_MIN_BUY_PRESSURE:
+        return False,"APEX buy pressure weak",intel
+    if nz(c.get("volume_accel"),0)<APEX_MIN_VOLUME_ACCEL:
+        return False,"APEX volume acceleration weak",intel
+    if m5 < -0.15:
+        return False,"APEX momentum fading",intel
+    if m5 > APEX_MAX_CHASE_M5:
+        return False,"APEX anti-chase",intel
+    tx=int(nz(c.get("buys_m5")))+int(nz(c.get("sells_m5")))
+    if tx and tx<6:
+        return False,"APEX insufficient transaction sample",intel
+    return True,"ok",intel
+
+
+def apex_status():
+    cands=[c for c in runtime.get("candidates",[]) if meme_hunter_candidate(c)]
+    rows=[]
+    pass_count=0
+    for c in cands[:30]:
+        st=c.get("best_strategy") or suggested_strategy(c)
+        intel=c.get("apex") or apex_intelligence(c,st)
+        ok,reason,_=apex_entry_gate(c,st)
+        if ok: pass_count+=1
+        rows.append({"symbol":c.get("symbol"),"strategy":st,"score":intel.get("score"),
+                     "pre_move_score":intel.get("pre_move_score"),"chase_risk":intel.get("chase_risk"),
+                     "pass":ok,"reason":reason})
+    rows.sort(key=lambda x:nz(x.get("score")),reverse=True)
+    return {
+        "enabled":bool(APEX_ENABLED),"strict":bool(APEX_STRICT_MODE),"edition":APEX_EDITION,
+        "min_score":APEX_MIN_SCORE,"min_sniper_score":APEX_MIN_SNIPER_SCORE,
+        "tracked":len(cands),"qualified":pass_count,"top":rows[:8],
+        "note":"Local bounded ensemble; PAPER only. No profitability guarantee."
+    }
+
 
 def token_security_status():
     spots=[c for c in runtime.get("candidates",[]) if not c.get("perp_eligible")]
@@ -2295,6 +2493,10 @@ def entry_router_assess(c,strategy=None,signal=None):
         strict_reason=reason
         result["strict_reason"]=reason
 
+    if APEX_ENABLED and APEX_STRICT_MODE:
+        result["reason"]=strict_reason or "APEX strict: signal below threshold"
+        return result
+
     if not b("selective_entry_router_enabled") or not profit_cycle_active():
         result["reason"]=strict_reason or "signal below threshold"
         return result
@@ -2374,7 +2576,12 @@ def planned_collateral(c,strategy):
     target_mult=daily_target_risk_multiplier()
     governor_mult=governor_risk_multiplier(strategy)
     router_mult=f("router_soft_risk_multiplier") if c.get("_router_soft_pass") else 1.0
-    risk_budget=m["equity"]*f("risk_pct")/100*rm*pw*strategy_risk_mult*target_mult*governor_mult*router_mult
+    apex_mult=1.0
+    if APEX_ENABLED and strategy in ("SNIPER_LONG","SCALP_LONG","PUMP_LONG"):
+        ai=c.get("apex") or apex_intelligence(c,strategy)
+        apex_mult=clamp((nz(ai.get("score"))-65)/25,0.35,1.0)
+        if (ai.get("feedback") or {}).get("state")=="NEGATIVE":apex_mult=min(apex_mult,0.50)
+    risk_budget=m["equity"]*f("risk_pct")/100*rm*pw*strategy_risk_mult*target_mult*governor_mult*router_mult*apex_mult
     effective_stop=max(0.25,strategy_max_loss_pct(strategy))
     collateral=risk_budget/max((effective_stop/100)*leverage,0.001)
     collateral=min(collateral,m["equity"]*f("max_position_pct")/100,f("cash"))
@@ -2731,10 +2938,12 @@ def adaptive_status():
 
 def strategy_recent_trade_stats(strategy,limit=None):
     limit=limit or i("governor_recent_trades")
+    baseline=int(nz(getv("apex_v110_trade_baseline_id","0"))) if APEX_ENABLED else 0
     with SessionLocal() as s:
-        rows=s.scalars(
-            select(Trade).where(Trade.strategy==strategy).order_by(Trade.id.desc()).limit(limit)
-        ).all()
+        q=select(Trade).where(Trade.strategy==strategy)
+        if baseline>0:
+            q=q.where(Trade.id>baseline)
+        rows=s.scalars(q.order_by(Trade.id.desc()).limit(limit)).all()
 
     wins=[x for x in rows if nz(x.pnl)>0]
     losses=[x for x in rows if nz(x.pnl)<=0]
@@ -2752,18 +2961,57 @@ def strategy_recent_trade_stats(strategy,limit=None):
         "pnl":sum(nz(x.pnl) for x in rows),
         "expectancy_pct":exp_pct,
         "profit_factor":pf,
-        "loss_streak":streak
+        "loss_streak":streak,
+        "latest_trade_id":int(rows[0].id) if rows else baseline,
+        "latest_pnl":nz(rows[0].pnl) if rows else 0,
     }
+
+def _governor_start_recovery(strategy,stats,reason):
+    runtime["governor_pauses"].pop(strategy,None)
+    runtime["governor_recovery"][strategy]={
+        "baseline_trade_id":int(stats.get("latest_trade_id") or 0),
+        "started_at":datetime.now(timezone.utc),
+        "reason":reason,
+    }
+    runtime["governor_last_reason"][strategy]=f"recovery after {reason}"
+
+def _governor_recovery_rows(strategy,baseline_id,limit=3):
+    with SessionLocal() as s:
+        return s.scalars(
+            select(Trade).where(Trade.strategy==strategy,Trade.id>int(baseline_id or 0))
+            .order_by(Trade.id.asc()).limit(limit)
+        ).all()
 
 def strategy_governor_status(strategy):
     stats=strategy_recent_trade_stats(strategy)
+    now=datetime.now(timezone.utc)
     pause_until=runtime["governor_pauses"].get(strategy)
-    if pause_until and datetime.now(timezone.utc)<pause_until:
+    if pause_until and now<pause_until:
         return {"strategy":strategy,"state":"PAUSED","risk_multiplier":0.0,
                 "pause_until":pause_until.isoformat(),**stats}
+    if pause_until and now>=pause_until:
+        _governor_start_recovery(strategy,stats,runtime["governor_last_reason"].get(strategy,"pause"))
+
+    recovery=runtime["governor_recovery"].get(strategy)
+    if recovery:
+        new_rows=_governor_recovery_rows(strategy,recovery.get("baseline_trade_id"),3)
+        # One failed probe is enough to re-pause. Winning probes may continue at tiny risk
+        # until three new closes provide a minimally useful post-pause sample.
+        if new_rows and nz(new_rows[-1].pnl)<=0:
+            runtime["governor_recovery"].pop(strategy,None)
+            until=now+timedelta(minutes=i("governor_loss_streak_pause_minutes"))
+            runtime["governor_pauses"][strategy]=until
+            runtime["governor_last_reason"][strategy]="failed recovery probe"
+            return {"strategy":strategy,"state":"PAUSED","risk_multiplier":0.0,
+                    "pause_until":until.isoformat(),**stats}
+        if len(new_rows)<3:
+            rm=0.50 if strategy=="LAUNCH_SNIPER" else 0.20
+            return {"strategy":strategy,"state":"RECOVERY","risk_multiplier":rm,
+                    "pause_until":None,"recovery_trades":len(new_rows),**stats}
+        runtime["governor_recovery"].pop(strategy,None)
 
     if stats["loss_streak"]>=i("governor_loss_streak_limit"):
-        until=datetime.now(timezone.utc)+timedelta(minutes=i("governor_loss_streak_pause_minutes"))
+        until=now+timedelta(minutes=i("governor_loss_streak_pause_minutes"))
         runtime["governor_pauses"][strategy]=until
         runtime["governor_last_reason"][strategy]="loss streak"
         return {"strategy":strategy,"state":"PAUSED","risk_multiplier":0.0,
@@ -2775,7 +3023,7 @@ def strategy_governor_status(strategy):
                 "pause_until":None,**stats}
 
     if stats["expectancy_pct"]<=0 or stats["profit_factor"]<f("governor_min_profit_factor"):
-        until=datetime.now(timezone.utc)+timedelta(minutes=i("governor_pause_minutes"))
+        until=now+timedelta(minutes=i("governor_pause_minutes"))
         runtime["governor_pauses"][strategy]=until
         runtime["governor_last_reason"][strategy]="negative edge"
         return {"strategy":strategy,"state":"PAUSED","risk_multiplier":0.0,
@@ -2798,6 +3046,12 @@ def strategy_governor_gate(strategy):
     st=strategy_governor_status(strategy)
     if st["state"]=="PAUSED":
         return False,"edge governor paused strategy"
+    if st["state"]=="RECOVERY":
+        # Never stack recovery probes in the same strategy.
+        with SessionLocal() as s:
+            exists=s.scalar(select(func.count(Position.id)).where(Position.strategy==strategy)) or 0
+        if int(exists)>0:
+            return False,"edge governor recovery probe already open"
     return True,"ok"
 
 def survival_guard_status():
@@ -2894,6 +3148,12 @@ def gate(c,strategy=None):
             return False,"shadow requires token security scan"
         if operating_mode()=="SHADOW" and b("security_hard_block_shadow") and sec.get("hard_block"):
             return False,"shadow token security hard block"
+
+    if strategy and not c.get("perp_eligible") and strategy!="LAUNCH_SNIPER":
+        aok,areason,aintel=apex_entry_gate(c,strategy)
+        c["apex"]=aintel;c["apex_score"]=aintel.get("score")
+        if not aok:
+            return False,areason
 
     if strategy and strategy_side(strategy)=="SHORT" and not c.get("perp_eligible"):
         return False,"short unavailable for spot-only token"
@@ -3715,6 +3975,23 @@ def launch_metrics(mint):
         runtime["launch_best"]={**m,"_t":now}
     return m
 
+def launch_apex_intelligence(m):
+    events=nz(m.get("events_2s"));buyers=nz(m.get("unique_buyers_2s"));pressure=nz(m.get("buy_pressure_2s"))
+    buy_sol=nz(m.get("buy_sol_2s"));top=nz(m.get("top_buyer_share_pct"),100);accel=nz(m.get("acceleration_score"))
+    base=nz(m.get("score"));mult=m.get("mcap_multiple")
+    sample=clamp(events/6*100,0,100)*.25+clamp(buyers/5*100,0,100)*.25
+    flow=clamp((pressure-50)*2,0,100)*.22+clamp(35*math.log10(1+buy_sol*10),0,100)*.18
+    concentration=clamp(100-top,0,100)*.10
+    accel_part=clamp(accel,0,100)*.10
+    chase_penalty=0
+    if mult is not None and mult>1.45: chase_penalty=min(35,(mult-1.45)*55)
+    if top>45: chase_penalty+=min(25,(top-45)*.8)
+    if m.get("creator_sell"): chase_penalty+=80
+    if m.get("creator_spam") or m.get("duplicate_symbol"): chase_penalty+=25
+    score=clamp(base*.28+sample+flow+concentration+accel_part-chase_penalty,0,100)
+    return {"score":round(score,1),"chase_penalty":round(chase_penalty,1),"base_score":round(base,1)}
+
+
 def launch_gate(m):
     if not strategy_manual_enabled("LAUNCH_SNIPER"):return False,"launch sniper off"
     if operating_mode()!="PAPER":return False,"launch sniper paper only"
@@ -3743,6 +4020,18 @@ def launch_gate(m):
     if launch_entry_count_hour()>=i("launch_max_entries_per_hour"):
         return False,"launch hourly limit"
 
+    la=launch_apex_intelligence(m)
+    m["apex_launch"]=la
+    if nz(la.get("score"))<82:
+        return False,f"launch APEX score {nz(la.get('score')):.1f} < 82"
+    if APEX_ENABLED:
+        if int(m.get("events_2s") or 0)<5:return False,"launch APEX needs 5 events"
+        if int(m.get("unique_buyers_2s") or 0)<4:return False,"launch APEX needs 4 independent buyers"
+        if nz(m.get("buy_pressure_2s"))<76:return False,"launch APEX pressure weak"
+        if nz(m.get("buy_sol_2s"))<0.25:return False,"launch APEX buy flow weak"
+        if nz(m.get("top_buyer_share_pct"),100)>45:return False,"launch APEX concentration high"
+        if nz(m.get("score"))<82:return False,"launch APEX base score weak"
+
     age=nz(m.get("age_sec"))
     if age<f("launch_min_age_sec"):return False,"launch too early"
     if age>f("launch_entry_max_age_sec"):return False,"launch too old"
@@ -3753,6 +4042,8 @@ def launch_gate(m):
     if int(m.get("unique_buyers_2s") or 0)<(min(i("launch_min_unique_buyers_2s"),PROFIT_LAUNCH_MIN_BUYERS) if profit_cycle_active() else i("launch_min_unique_buyers_2s")):return False,"launch low buyers"
     if nz(m.get("buy_pressure_2s"))<(min(f("launch_min_buy_pressure_2s"),PROFIT_LAUNCH_MIN_PRESSURE) if profit_cycle_active() else f("launch_min_buy_pressure_2s")):return False,"launch low buy pressure"
     if nz(m.get("buy_sol_2s"))<(min(f("launch_min_buy_sol_2s"),PROFIT_LAUNCH_MIN_BUY_SOL) if profit_cycle_active() else f("launch_min_buy_sol_2s")):return False,"launch low buy flow"
+    if nz(m.get("net_sol_2s"))<=0:return False,"launch net flow not positive"
+    if nz(m.get("acceleration_score"))<45:return False,"launch acceleration weak"
     if nz(m.get("top_buyer_share_pct"),100)>f("launch_max_top_buyer_share_pct"):
         return False,"launch buyer concentration"
     if nz(m.get("score"))<(min(f("launch_min_score"),PROFIT_LAUNCH_MIN_SCORE) if profit_cycle_active() else f("launch_min_score")):return False,"launch low score"
@@ -3836,12 +4127,10 @@ def launch_candidate(m,price=1.0):
 
 def launch_position_size(m):
     eq=max(0,nz(metrics().get("equity")))
-    if profit_cycle_active():
-        cap=eq*1.00/100
-        gov=max(governor_risk_multiplier("LAUNCH_SNIPER"),0.50)
-    else:
-        cap=eq*f("launch_max_position_pct")/100
-        gov=governor_risk_multiplier("LAUNCH_SNIPER")
+    # APEX keeps first-seconds exposure tiny. Governor is never rounded upward.
+    cap_pct=min(f("launch_max_position_pct"),0.20 if APEX_ENABLED else f("launch_max_position_pct"))
+    cap=eq*cap_pct/100
+    gov=governor_risk_multiplier("LAUNCH_SNIPER")
     amount=min(cap*gov,f("cash"))
     return max(0,amount)
 
@@ -5258,7 +5547,7 @@ async def sniper_scan_loop():
     runtime["sniper_scanner_alive"]=True
     record_event("INFO","SNIPER_START","Micro-Pump Sniper scanner started",
                  {"interval_sec":i("sniper_scan_interval_sec")},dedupe_sec=5)
-    async with httpx.AsyncClient(headers={"User-Agent":"NOVA-Meme-Hunter-Sniper/1.0.0"}) as client:
+    async with httpx.AsyncClient(headers={"User-Agent":"NOVA-Meme-Hunter-Sniper/1.1.0"}) as client:
         while True:
             try:
                 if b("sniper_enabled"):
@@ -5320,7 +5609,7 @@ async def position_watch_loop():
     runtime["position_watcher_alive"]=True
     record_event("INFO","FAST_WATCH_START","Independent fast position watcher started",
                  {"interval_sec":i("position_watch_interval_sec")},dedupe_sec=5)
-    async with httpx.AsyncClient(headers={"User-Agent":"NOVA-Meme-Hunter-Watcher/1.0.0"}) as client:
+    async with httpx.AsyncClient(headers={"User-Agent":"NOVA-Meme-Hunter-Watcher/1.1.0"}) as client:
         while True:
             try:
                 with SessionLocal() as s:
@@ -5371,8 +5660,8 @@ def today_guard_status():
 
 async def engine_loop():
     runtime["loop_alive"]=True
-    record_event("INFO","ENGINE_START","NOVA MEME HUNTER V1 engine loop started",{"version":APP_VERSION},dedupe_sec=5)
-    async with httpx.AsyncClient(headers={"User-Agent":"NOVA-Meme-Hunter/1.0.0"}) as client:
+    record_event("INFO","ENGINE_START","NOVA MEME HUNTER V1.1 APEX engine loop started",{"version":APP_VERSION},dedupe_sec=5)
+    async with httpx.AsyncClient(headers={"User-Agent":"NOVA-Meme-Hunter/1.1.0"}) as client:
         addresses=[];boosts={};universal_assets=[];universal_boosts={};last_discovery=0;last_universe=0
         while True:
             try:
@@ -5425,7 +5714,9 @@ async def engine_loop():
                     for c in pairs:
                         if c.get("perp_eligible"):c["security"]={"status":"N/A","score":100,"hard_block":False,"flags":[],"source":"PERP_MARKET"}
                         st=suggested_strategy(c);signal=strategy_entry_score(st,c);quality,route=signal_quality(c,st,signal)
-                        c["best_strategy"]=st;c["quality_score"]=quality;c["route"]=route;attach_entry_router_status(c)
+                        c["best_strategy"]=st;c["quality_score"]=quality;c["route"]=route
+                        c["apex"]=apex_intelligence(c,st);c["apex_score"]=c["apex"].get("score")
+                        attach_entry_router_status(c)
 
                     runtime["candidates"]=pairs
                     runtime["last_refresh"]=now_iso;runtime["last_successful_loop"]=now_iso;runtime["universe_last_refresh"]=now_iso;runtime["engine_error_streak"]=0
@@ -5443,6 +5734,38 @@ async def engine_loop():
 @app.on_event("startup")
 async def startup():
     # Meme Hunter profile: V7.0 profit core preserved; major/perp engines are permanently separated.
+    # V1.1 APEX one-time PAPER migration. It never enables LIVE execution.
+    if getv("apex_v110_profile_applied", "false").lower() not in ("1","true","yes","on"):
+        apex_profile={
+            "risk_pct":"0.35","max_position_pct":"6","max_positions":"2",
+            "min_pump_score":"78","min_scalp_score":"78","min_sniper_score":"82",
+            "capital_shield_min_liquidity":"70000","capital_shield_min_market_quality":"68",
+            "max_spot_abs_m5_pct":"10","sniper_min_buy_pressure":"64",
+            "sniper_min_volume_accel":"56","sniper_max_m5_pct":"6.5",
+            "router_soft_risk_multiplier":"0.25","router_max_soft_entries_per_hour":"1",
+            "launch_entry_max_age_sec":"10","launch_min_age_sec":"0.60",
+            "launch_min_score":"82","launch_min_events_2s":"5",
+            "launch_min_unique_buyers_2s":"4","launch_min_buy_pressure_2s":"76",
+            "launch_min_buy_sol_2s":"0.25","launch_max_top_buyer_share_pct":"45",
+            "launch_max_mcap_multiple":"1.45","launch_min_mcap_multiple":"0.98",
+            "launch_confirmation_required":"3","launch_confirmation_window_sec":"2.2",
+            "launch_max_position_pct":"0.20","launch_max_entries_per_hour":"2",
+            "launch_raw_stop_pct":"0.65","launch_max_net_loss_pct":"3.0",
+            "launch_scratch_after_sec":"1.25","launch_scratch_peak_pct":"0.75",
+            "launch_scratch_loss_pct":"1.75","launch_max_hold_sec":"10",
+            "launch_flow_reversal_after_sec":"0.45","launch_flow_reversal_pressure":"52",
+            "survival_daily_loss_pct":"1.0","survival_combined_loss_pct":"1.0",
+            "global_equity_guard_pct":"1.5","recovery_scalp_loss_cap_pct":"0.9",
+            "recovery_pump_loss_cap_pct":"1.2"
+        }
+        for k,v in apex_profile.items():setv(k,v)
+        # Preserve old PAPER history in the UI, but calibrate APEX feedback/governor only
+        # on trades generated by this new decision model.
+        with SessionLocal() as s:
+            baseline_trade_id=int(s.scalar(select(func.max(Trade.id))) or 0)
+        setv("apex_v110_trade_baseline_id",str(baseline_trade_id))
+        setv("apex_v110_profile_applied","true")
+
     setv("perp_long_engine_enabled","false")
     setv("perp_short_engine_enabled","false")
     # V5.6.1 critical cadence migration: older DB values can survive deploys.
@@ -5692,6 +6015,9 @@ def health():
         "ok":True,
         "version":APP_VERSION,
         "bot_profile":BOT_PROFILE,
+        "apex_edge_enabled":APEX_ENABLED,
+        "apex_strict_mode":APEX_STRICT_MODE,
+        "apex_edition":APEX_EDITION,
         "base_core_version":BASE_CORE_VERSION,
         "meme_hunter_mode":MEME_HUNTER_MODE,
         "major_perp_trading":False,
@@ -5771,6 +6097,7 @@ def dashboard(x_nova_key:Optional[str]=Header(None, alias="X-NOVA-Key")):
         },
         "launch_sniper":launch_status(),
         "pulse_intelligence":pulse_diag_summary(),
+        "apex_edge":apex_status(),
         "entry_router":{
             "enabled":b("selective_entry_router_enabled"),
             "soft_entries_last_hour":router_soft_entry_count(),
@@ -6174,7 +6501,7 @@ def control(action:str, x_nova_key:Optional[str]=Header(None, alias="X-NOVA-Key"
         with SessionLocal() as s:
             s.query(PositionFeature).delete();s.query(TradeFeature).delete();s.query(ExecutionEvent).delete();s.query(Position).delete();s.query(Trade).delete();s.query(EquityPoint).delete();s.commit()
         setv("cash",getv("start_balance"));setv("bot_enabled","false");setv("killed","false")
-        runtime["cooldowns"].clear();runtime["strategy_pauses"].clear();runtime["last_portfolio_block"]=None;runtime["last_execution_block"]=None;runtime["execution_blocks"]=0;runtime["position_price_seen"].clear();runtime["sniper_entries"]=0;runtime["sniper_candidates"]=[];runtime["pulse_entries"]=0;runtime["pulse_diag_events"].clear();runtime["pulse_diag_dedupe"].clear();runtime["pulse_recent_best"].clear();runtime["pulse_confirmations"].clear();runtime["governor_pauses"].clear();runtime["governor_last_reason"].clear();runtime["router_soft_entry_times"].clear();runtime["router_last_entry"]=None;runtime["router_soft_entries"]=0;runtime["launch_watch"].clear();runtime["launch_marks"].clear();runtime["launch_confirmations"].clear();runtime["launch_evaluating"].clear();runtime["launch_creator_history"].clear();runtime["launch_symbol_history"].clear();runtime["launch_entries"]=0;runtime["launch_entry_times"].clear();runtime["launch_new_tokens"]=0;runtime["launch_trades_seen"]=0;runtime["launch_diag"].clear();runtime["launch_best"]=None;runtime["launch_last_event"]=0;runtime["launch_last_entry"]=None;runtime["pulse_adaptive_shifts"]={"score":0.0,"events":0,"pressure":0.0,"buyers":0};runtime["pulse_adaptive_actions"].clear();runtime["pulse_last_perf_trade_id"]=0;runtime["realtime_exit_checks"]=0;runtime["realtime_exit_direct_marks"]=0;runtime["realtime_exit_rest_checks"]=0;runtime["realtime_exit_refs"].clear();runtime["daily_target_locked"]=False;runtime["daily_target_lock_time"]=None;runtime["pause_until"]=None
+        runtime["cooldowns"].clear();runtime["strategy_pauses"].clear();runtime["last_portfolio_block"]=None;runtime["last_execution_block"]=None;runtime["execution_blocks"]=0;runtime["position_price_seen"].clear();runtime["sniper_entries"]=0;runtime["sniper_candidates"]=[];runtime["pulse_entries"]=0;runtime["pulse_diag_events"].clear();runtime["pulse_diag_dedupe"].clear();runtime["pulse_recent_best"].clear();runtime["pulse_confirmations"].clear();runtime["governor_pauses"].clear();runtime["governor_last_reason"].clear();runtime["governor_recovery"].clear();runtime["apex_feedback_cache"].clear();runtime["router_soft_entry_times"].clear();runtime["router_last_entry"]=None;runtime["router_soft_entries"]=0;runtime["launch_watch"].clear();runtime["launch_marks"].clear();runtime["launch_confirmations"].clear();runtime["launch_evaluating"].clear();runtime["launch_creator_history"].clear();runtime["launch_symbol_history"].clear();runtime["launch_entries"]=0;runtime["launch_entry_times"].clear();runtime["launch_new_tokens"]=0;runtime["launch_trades_seen"]=0;runtime["launch_diag"].clear();runtime["launch_best"]=None;runtime["launch_last_event"]=0;runtime["launch_last_entry"]=None;runtime["pulse_adaptive_shifts"]={"score":0.0,"events":0,"pressure":0.0,"buyers":0};runtime["pulse_adaptive_actions"].clear();runtime["pulse_last_perf_trade_id"]=0;runtime["realtime_exit_checks"]=0;runtime["realtime_exit_direct_marks"]=0;runtime["realtime_exit_rest_checks"]=0;runtime["realtime_exit_refs"].clear();runtime["daily_target_locked"]=False;runtime["daily_target_lock_time"]=None;runtime["pause_until"]=None
         record_event("INFO","PAPER_RESET","Paper account reset to start balance",{"start_balance":f("start_balance")},dedupe_sec=5)
     else: raise HTTPException(400,"Unknown action")
     return {"ok":True,"action":action}
