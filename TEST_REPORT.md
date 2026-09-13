@@ -1,36 +1,35 @@
-# Test Report — NOVA MEME HUNTER — MANUS V1.0.0
+# NOVA MEME HUNTER V1.1.0 — APEX EDGE Test Report
 
-## Executed result
+## Static / syntax
+- Python compile: PASS
+- Dashboard JavaScript syntax (`node --check`): PASS
 
-Command:
+## Decision smoke tests
+- App version / APEX identity: PASS
+- LIVE hard-lock retained: PASS
+- High-quality early DEX setup passes APEX gate: PASS
+- Extended/chasing setup rejected: PASS
+- USDC stablecoin excluded from meme target universe: PASS
+- Strict APEX mode prevents rejected setup from becoming a soft-entry: PASS
+- Launch APEX high-quality synthetic flow score >= entry floor: PASS
+- Edge Governor expired pause enters controlled RECOVERY state at 0.20x risk: PASS
+- APEX status endpoint data generation: PASS
+
+Observed synthetic scores in smoke test:
+- Early quality DEX setup: 80.9
+- Chasing setup: 52.2
+- Strong launch setup: 100.0
+
+## Important
+These are engineering smoke tests, not evidence of future profitability. PAPER performance must be evaluated on real market samples with fees/slippage assumptions.
+
+## V7 APEX Fusion regression run
+
+Executed after restoring the original V7 implementation and adding the V7 APEX Fusion release layer:
 
 ```bash
-pytest -q && python3 -m compileall -q app tests && node --check dashboard/app.js
+python3 -m py_compile app.py test_v7_fusion.py
+pytest -q test_v7_fusion.py
 ```
 
-Result: **7 passed**, Python compilation successful, and JavaScript syntax check successful. FastAPI emitted only deprecation warnings for `on_event`; this does not affect behavior or test outcomes.
-
-## Covered checks
-
-| Area | Result |
-|---|---|
-| Health/version response | PASS |
-| Hardcoded live execution lock | PASS |
-| Major and stablecoin rejection | PASS |
-| High-quality early entry | PASS |
-| Anti-chase rejection | PASS |
-| Weak liquidity rejection | PASS |
-| Creator dump rejection | PASS |
-| Launch qualification and immature-launch rejection | PASS |
-| Risk sizing and dollar-risk bound | PASS |
-| Maximum positions and daily loss guard | PASS |
-| Loss-streak risk reduction | PASS |
-| Paper spread/slippage/fee and exit P&L | PASS |
-| Edge Governor rolling statistics | PASS |
-| Admin authentication and candidate API schema | PASS |
-| Python compilation | PASS |
-| JavaScript syntax | PASS |
-
-## Self-audit notes
-
-The paper executor applies modeled entry spread/slippage and exit cost before net P&L. Risk sizing uses equity multiplied by a bounded risk fraction divided by stop distance; loss streaks reduce risk and never increase it. Candidate ingestion is separated from scoring, and the PumpPortal adapter uses timeout-based heartbeat handling, exponential reconnect backoff, cancellation propagation, and async I/O. No wallet, signing, withdrawal, or real execution path exists. The dashboard reads the documented response keys and never contains a provider credential.
+Result: **6 passed**. The suite verified V7 version continuity, the hard live lock, capability contract, authenticated dashboard schema, rejection of LIVE mode with HTTP 403, unsafe-risk-setting rejection, and preservation of the full dashboard panel set. Only FastAPI startup-event deprecation warnings were emitted.
