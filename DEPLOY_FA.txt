@@ -1,0 +1,26 @@
+NOVA MEME HUNTER V1.0.0 — Deploy
+Base Core: NOVA V7.0.0
+
+GitHub:
+تمام فایل‌های این پوشه را مستقیم در ریشه Repository به نام NOVA-MEME-HUNTER آپلود کنید.
+فایل ZIP و پوشه __pycache__ را آپلود نکنید.
+
+Northflank:
+1) یک Service جدید از Repository NOVA-MEME-HUNTER بسازید.
+2) Build type: Dockerfile
+3) Dockerfile path: /Dockerfile
+4) Port: از متغیر PORT توسط Northflank خوانده می‌شود.
+5) Health endpoint: /health
+
+متغیرهای محیطی مهم:
+NOVA_ADMIN_KEY=<secret>
+DATABASE_URL=<Northflank PostgreSQL URL>   (اختیاری؛ بدون آن SQLite محلی استفاده می‌شود)
+NOVA_FREE_LITE=true
+PUMPPORTAL_TRADE_STREAM_ENABLED=false     (تا زمانی که عمداً فعالش کنید)
+
+امنیت:
+- هیچ API key یا secret را در GitHub قرار ندهید.
+- LIVE execution در کد HARD-LOCKED است؛ این نسخه PAPER/SHADOW است.
+
+بعد از Deploy:
+/health باید version=1.0.0 و bot_profile=NOVA_MEME_HUNTER را نشان دهد.
