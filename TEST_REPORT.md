@@ -1,24 +1,36 @@
-# NOVA MEME HUNTER V1.1.0 — APEX EDGE Test Report
+# Test Report — NOVA MEME HUNTER — MANUS V1.0.0
 
-## Static / syntax
-- Python compile: PASS
-- Dashboard JavaScript syntax (`node --check`): PASS
+## Executed result
 
-## Decision smoke tests
-- App version / APEX identity: PASS
-- LIVE hard-lock retained: PASS
-- High-quality early DEX setup passes APEX gate: PASS
-- Extended/chasing setup rejected: PASS
-- USDC stablecoin excluded from meme target universe: PASS
-- Strict APEX mode prevents rejected setup from becoming a soft-entry: PASS
-- Launch APEX high-quality synthetic flow score >= entry floor: PASS
-- Edge Governor expired pause enters controlled RECOVERY state at 0.20x risk: PASS
-- APEX status endpoint data generation: PASS
+Command:
 
-Observed synthetic scores in smoke test:
-- Early quality DEX setup: 80.9
-- Chasing setup: 52.2
-- Strong launch setup: 100.0
+```bash
+pytest -q && python3 -m compileall -q app tests && node --check dashboard/app.js
+```
 
-## Important
-These are engineering smoke tests, not evidence of future profitability. PAPER performance must be evaluated on real market samples with fees/slippage assumptions.
+Result: **7 passed**, Python compilation successful, and JavaScript syntax check successful. FastAPI emitted only deprecation warnings for `on_event`; this does not affect behavior or test outcomes.
+
+## Covered checks
+
+| Area | Result |
+|---|---|
+| Health/version response | PASS |
+| Hardcoded live execution lock | PASS |
+| Major and stablecoin rejection | PASS |
+| High-quality early entry | PASS |
+| Anti-chase rejection | PASS |
+| Weak liquidity rejection | PASS |
+| Creator dump rejection | PASS |
+| Launch qualification and immature-launch rejection | PASS |
+| Risk sizing and dollar-risk bound | PASS |
+| Maximum positions and daily loss guard | PASS |
+| Loss-streak risk reduction | PASS |
+| Paper spread/slippage/fee and exit P&L | PASS |
+| Edge Governor rolling statistics | PASS |
+| Admin authentication and candidate API schema | PASS |
+| Python compilation | PASS |
+| JavaScript syntax | PASS |
+
+## Self-audit notes
+
+The paper executor applies modeled entry spread/slippage and exit cost before net P&L. Risk sizing uses equity multiplied by a bounded risk fraction divided by stop distance; loss streaks reduce risk and never increase it. Candidate ingestion is separated from scoring, and the PumpPortal adapter uses timeout-based heartbeat handling, exponential reconnect backoff, cancellation propagation, and async I/O. No wallet, signing, withdrawal, or real execution path exists. The dashboard reads the documented response keys and never contains a provider credential.

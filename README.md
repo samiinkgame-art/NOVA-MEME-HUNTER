@@ -1,40 +1,39 @@
-# NOVA MEME HUNTER V1.1.0 — APEX EDGE
+# NOVA MEME HUNTER — MANUS V1.0.0
 
-PAPER/SHADOW meme/altcoin hunter derived from the NOVA V7.0.0 reference core.
+A production-oriented **paper/shadow-only** event-driven meme-coin research and simulation service. It is not financial advice and makes no profitability promise.
 
-## What changed
-- APEX local decision ensemble: pre-move, flow, liquidity, market quality, security and recent PAPER feedback.
-- Anti-chase veto for already-extended moves.
-- Stablecoin / wrapped-major exclusion from meme hunting.
-- Strict mode: rejected premium setups cannot be re-opened through the old soft-entry router.
-- Launch APEX: stronger event, independent-buyer, flow, concentration and acceleration gates.
-- Smaller launch exposure and faster invalidation.
-- Lower account risk and fewer simultaneous positions.
-- Edge Governor recovery probes: a paused strategy can recover with tiny controlled PAPER probes instead of being permanently re-paused by old losses.
-- APEX feedback cache to keep dashboard and engine latency low.
-- Historical PAPER trades remain visible, while the V1.1 APEX learning baseline starts from the deployment boundary.
+## Architecture
+
+FastAPI exposes a small JSON API and serves health data. Candidate events are normalized into a bounded deterministic scoring pipeline: pre-move intelligence, anti-chase, launch intelligence, flow, liquidity, market, security, execution, concentration, and creator-risk components combine into APEX. Entry is blocked by hard safety gates. Paper execution models spread, slippage, fees, delayed execution effects, staged risk sizing, and explicit exits. Provider adapters isolate PumpPortal WebSocket, DexScreener, and Binance read-only data. A background task is cancellation-safe and never performs blocking I/O in the async loop.
 
 ## Safety
-- LIVE execution remains hard locked.
-- No martingale.
-- Risk/security/liquidity guards remain authoritative.
-- Profit is not guaranteed; evaluate with expectancy, profit factor and drawdown after a meaningful PAPER sample.
 
-## Required Northflank variables
-- `NOVA_ADMIN_KEY`
-- `PUMPPORTAL_API_KEY`
-- `PUMPPORTAL_TRADE_STREAM_ENABLED=true`
+`LIVE_EXECUTION_LOCKED = True` is hardcoded. There are no wallets, private keys, signing, withdrawals, or real order endpoints. All controls affect only paper/shadow state.
 
-Optional database persistence:
-- `DATABASE_URL` (PostgreSQL recommended for durable PAPER history)
+## Defaults
 
-## Health
-After deployment, `/health` should include:
-- `version: 1.1.0`
-- `bot_profile: NOVA_MEME_HUNTER`
-- `apex_edge_enabled: true`
-- `apex_strict_mode: true`
-- `apex_edition: APEX_EDGE`
-- `base_core_version: 7.0.0`
-- `major_perp_trading: false`
-- `live_execution_locked: true`
+Starting equity is `$5,000`, normal risk is `0.30%` of equity, launch risk is `0.15%`, maximum simultaneous positions is `2`, and daily loss guard is `2.5%`. Risk is reduced after losses; there is no martingale or averaging down.
+
+## Providers
+
+PumpPortal realtime WebSocket is represented by a reconnecting, heartbeat-aware adapter. DexScreener and Binance public REST adapters use short async HTTP timeouts. Provider credentials remain backend-only.
+
+## Environment variables
+
+`NOVA_ADMIN_KEY` (required for admin POST endpoints), `CORS_ORIGINS` (comma-separated origins, default `*`), `PUMPPORTAL_API_KEY` (backend only, optional), `PUMPPORTAL_TRADE_STREAM_ENABLED` (backend-only deployment setting), `DATABASE_URL` (reserved for PostgreSQL integration), and `SOLANA_RPC_URL` (optional).
+
+## Run locally
+
+```bash
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+export NOVA_ADMIN_KEY=change-me
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pytest -q
+```
+
+Open `dashboard/index.html` directly or publish the `dashboard/` directory to GitHub Pages. Configure the backend HTTPS URL and admin key in the Connection panel; the key is stored only in browser local storage and no provider key is ever sent to the browser.
+
+## API
+
+GET `/`, `/health`, `/api/dashboard`, `/api/signals`, `/api/positions`, `/api/trades`, `/api/realtime-diagnostics`, `/api/performance`, `/api/strategy-performance`; admin-authenticated POST `/api/candidates`, `/api/start`, `/api/stop`, `/api/kill`, `/api/reset-paper` using `X-NOVA-Key`.
