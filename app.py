@@ -1,4 +1,4 @@
-import os, asyncio, math, time, random, json, hmac
+import os, asyncio, math, time, random, json, hmac, secrets
 import threading
 from contextvars import ContextVar
 from functools import wraps
@@ -49,13 +49,13 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import create_engine, String, Float, Integer, Boolean, DateTime, Text, select, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.0"
 BASE_CORE_VERSION = "7.0.0"
 BOT_PROFILE = "NOVA_MEME_HUNTER"
 MEME_HUNTER_MODE = True
 APEX_EDGE_MODE = True
 APEX_EDITION = "APEX_EDGE"
-RELEASE_LABEL = "V7 APEX FUSION · PAPER RC1"
+RELEASE_LABEL = "V7 APEX FUSION · HYBRID PAPER RC1"
 DEX = "https://api.dexscreener.com"
 VELOCITY_DATA = "https://data.velocity.exchange"
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
@@ -429,6 +429,10 @@ DEFAULTS = {
     "security_scan_ttl_sec": "600",
     "security_scan_top_n": "2",
     "security_required_shadow": "true",
+    # The mobile research model's strongest safety rule: automatic PAPER entries
+    # require a completed token scan; a user-requested research experiment must
+    # carry an explicit acknowledgement and remains clearly labelled PAPER.
+    "security_required_paper": "true",
     "security_hard_block_shadow": "true",
     "min_route_quality": "55",
     "spot_max_hold_minutes": "120",
@@ -668,7 +672,12 @@ app = FastAPI(title="NOVA V7 Paper Trading", version=APP_VERSION, lifespan=lifes
 async def protect_api(request: Request, call_next):
     if request.method != "OPTIONS" and request.url.path.startswith("/api/"):
         try:
-            auth(request.headers.get("X-NOVA-Key"))
+            presented = request.headers.get("X-NOVA-Key")
+            if not presented:
+                authorization = request.headers.get("Authorization", "")
+                if authorization.startswith("Bearer "):
+                    presented = authorization[7:]
+            auth(presented)
         except HTTPException as error:
             return JSONResponse({"detail":error.detail}, status_code=error.status_code)
     response = await call_next(request)
@@ -685,7 +694,7 @@ app.add_middleware(
     allow_origins=[os.getenv("NOVA_DASHBOARD_ORIGIN", "https://samiinkgame-art.github.io").rstrip("/")],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-NOVA-Key"],
+    allow_headers=["Accept", "Content-Type", "X-NOVA-Key", "Authorization", "X-Nova-CSRF"],
     expose_headers=["X-NOVA-Version"],
     max_age=86400,
 )
@@ -829,6 +838,7 @@ runtime.update({
     "binance_spot_exchange_ts": 0.0,
     "universal_dex_assets": [],
 })
+runtime["compat_csrf"] = secrets.token_urlsafe(32)
 
 position_manage_lock = asyncio.Lock()
 entry_lock = asyncio.Lock()
@@ -3191,7 +3201,7 @@ def gate(c,strategy=None):
     if (c.get("security") or {}).get("hard_block"):
         return False,"token security hard block"
     if b("killed"): return False,"kill switch"
-    if not b("bot_enabled"): return False,"bot stopped"
+    if not b("bot_enabled") and not c.get("_manual_paper"): return False,"bot stopped"
     if strategy and not strategy_manual_enabled(strategy):
         return False,"engine manually disabled"
 
@@ -3269,6 +3279,8 @@ def gate(c,strategy=None):
             return False,"token security score too low"
         if operating_mode()=="SHADOW" and b("security_required_shadow") and sec_status=="UNKNOWN":
             return False,"shadow requires token security scan"
+        if operating_mode()=="PAPER" and b("security_required_paper") and sec_status=="UNKNOWN" and not c.get("_manual_paper"):
+            return False,"paper auto-entry requires token security scan"
         if operating_mode()=="SHADOW" and b("security_hard_block_shadow") and sec.get("hard_block"):
             return False,"shadow token security hard block"
 
@@ -6173,6 +6185,155 @@ def capabilities():
         "realtime":["PUMPPORTAL_WEBSOCKET","HEARTBEAT","RECONNECT_BACKOFF","STALE_FEED_DIAGNOSTICS"],
         "major_perpetual_trading":False
     }
+
+def _compat_time(value):
+    if value is None:
+        return None
+    try:
+        if isinstance(value, datetime):
+            return value.timestamp()
+        return float(value)
+    except (TypeError, ValueError, OSError):
+        return None
+
+def _compat_candidate(c):
+    """Shape the V7 market observation for the original mobile dashboard."""
+    if not c:
+        return None
+    scores = {
+        "pump": nz(c.get("pump_score")), "scalp": nz(c.get("scalp_score")),
+        "sniper": nz(c.get("sniper_score")), "long": nz(c.get("long_score")),
+        "short": nz(c.get("short_score")), "liquidity": nz(c.get("liquidity")),
+        "volume": nz(c.get("market_risk")), "momentum": nz(c.get("volume_accel")),
+    }
+    signal=max(scores["pump"],scores["scalp"],scores["sniper"],scores["long"])
+    security=c.get("security") or {}
+    reasons=list(c.get("reasons") or [])
+    if security.get("status")=="UNKNOWN":
+        reasons.append("Security is UNKNOWN; no safety conclusion was made")
+    return {
+        "mint":c.get("mint"),"symbol":c.get("symbol") or "?",
+        "pair":c.get("url") or c.get("dex") or "DEX",
+        "price":nz(c.get("price")),"liquidity":nz(c.get("liquidity")),
+        "volume5m":nz(c.get("volume_m5")),"volume1h":nz(c.get("volume_m5")),
+        "buys5m":int(nz(c.get("buys_m5"))),"sells5m":int(nz(c.get("sells_m5"))),
+        "change5m":nz(c.get("m5")),"change1h":nz(c.get("h1")),
+        "received_at":nz(c.get("received_at")),"market_cap":nz(c.get("market_cap")) or None,
+        "pair_created_at":None,"source":c.get("data_source") or "DEXSCREENER",
+        "first_seen":nz(c.get("received_at")),
+        "decision":{
+            "state":"WAIT","market_score":round(signal,1),"nova_score":None,
+            "coverage":0.40,"components":scores,"reasons":reasons,
+            "strategy":c.get("best_strategy"),"research_candidate":False,
+        },
+        "stale":not valid_market_mark(c),
+        "security":security,
+    }
+
+def _compat_state_data():
+    with SessionLocal() as s:
+        positions=s.scalars(select(Position).order_by(Position.id.asc())).all()
+        position_rows=[]
+        for p in positions:
+            position_rows.append({
+                "id":str(p.id),"mint":p.mint,"symbol":p.symbol,"status":"open",
+                "direction":strategy_side(p.strategy),"mode":"paper","strategy":p.strategy,
+                "opened_at":_compat_time(p.opened_at),"entry":p.entry_price,
+                "mark":p.last_price,"quantity":p.remaining_cost/max(p.entry_price,1e-12),
+                "remaining":p.remaining_cost/max(p.entry_price,1e-12),
+                "entry_fee":max(0,-p.locked_pnl),"mark_at":_compat_time(p.opened_at),
+                "stop":p.entry_price*(1-strategy_max_loss_pct(p.strategy)/100),
+                "initial_stop":p.entry_price*(1-strategy_max_loss_pct(p.strategy)/100),
+                "targets":[p.entry_price*(1+x/100) for x in (4,8,12)],
+                "tp_done":[bool(p.tp1),bool(p.tp2),bool(p.tp3)],"high":p.peak_price,
+                "realized_pnl":p.locked_pnl,"reason":"V7 PAPER position"
+            })
+        trades=s.scalars(select(Trade).order_by(Trade.id.desc()).limit(100)).all()
+        closed=[{"id":str(t.id),"mint":t.mint,"symbol":t.symbol,"status":"closed",
+                 "direction":"LONG" if not str(t.strategy).endswith("SHORT") else "SHORT",
+                 "mode":"paper","strategy":t.strategy,"closed_at":_compat_time(t.closed_at),
+                 "realized_pnl":t.pnl,"exit_reason":t.reason,"mark":0,"mark_at":_compat_time(t.closed_at)} for t in trades]
+    d=dashboard(ADMIN_KEY)
+    m=d.get("metrics") or {}
+    return {
+        "version":APP_VERSION,"mode":operating_mode().lower(),"auto_paper_research":False,
+        "kill":b("killed"),"health":{**source_health(),"fresh":source_health().get("last_loop_age_sec",10**9)<=f("max_data_age_sec")},
+        "live":{"enabled":False,"reason":"Live execution is hard-locked in this release."},
+        "account":{"initial_cash":f("start_balance"),"cash":f("cash"),"peak":f("start_balance"),
+                   "equity":nz(m.get("equity")),"exposure":nz(m.get("exposure")),
+                   "equity_stale":False,"pnl":nz(m.get("pnl")),"drawdown":nz(m.get("current_drawdown_pct"))/100},
+        "tokens":[x for x in (_compat_candidate(c) for c in runtime.get("candidates",[])) if x],
+        "positions":position_rows,"closed":closed,"trades":closed,
+        "events":system_events(30),"equity":[],
+        "limits":{"risk_per_trade":f("risk_pct")/100,"max_position":f("max_position_pct")/100,
+                  "max_exposure":f("max_total_exposure_pct")/100,"daily_loss":f("daily_loss_limit_pct")/100,
+                  "weekly_loss":f("weekly_loss_limit_pct")/100 if "weekly_loss_limit_pct" in DEFAULTS else .06,
+                  "max_drawdown":f("drawdown_hard_cut_pct")/100,"min_liquidity":f("min_liquidity"),
+                  "slippage_bps":f("base_spread_bps"),"fee_bps":f("spot_fee_bps")}
+    }
+
+def _compat_auth_and_csrf(request: Request):
+    authorization=request.headers.get("Authorization", "")
+    presented=request.headers.get("X-NOVA-Key")
+    if not presented and authorization.startswith("Bearer "):
+        presented=authorization[7:]
+    auth(presented)
+    if not hmac.compare_digest(str(request.headers.get("X-Nova-CSRF") or "").encode(), str(runtime["compat_csrf"]).encode()):
+        raise HTTPException(403,"Invalid session; reconnect dashboard")
+
+@app.get("/api/session")
+def compat_session(request: Request):
+    auth(request.headers.get("X-NOVA-Key") or request.headers.get("Authorization", "").removeprefix("Bearer "))
+    return {"csrf":runtime["compat_csrf"]}
+
+@app.get("/api/state")
+def compat_state(request: Request):
+    _compat_auth_and_csrf(request) if request.headers.get("X-Nova-CSRF") else auth(request.headers.get("X-NOVA-Key") or request.headers.get("Authorization", "").removeprefix("Bearer "))
+    return _compat_state_data()
+
+@app.post("/api/kill")
+async def compat_kill(request: Request):
+    _compat_auth_and_csrf(request)
+    body=await request.json()
+    if type(body.get("active")) is not bool:
+        raise HTTPException(400,"Boolean active required")
+    setv("killed","true" if body["active"] else "false")
+    if body["active"]: setv("bot_enabled","false")
+    record_event("WARN" if body["active"] else "INFO","KILL_SWITCH","Compatibility kill switch updated",{"active":body["active"]})
+    return {"kill":body["active"]}
+
+@app.post("/api/paper/open")
+async def compat_paper_open(request: Request):
+    _compat_auth_and_csrf(request)
+    body=await request.json()
+    if body.get("acknowledgement")!="RESEARCH_ONLY_UNKNOWN_SECURITY":
+        raise HTTPException(400,"Research acknowledgement required")
+    mint=str(body.get("mint") or "").strip()
+    request_id=str(body.get("request_id") or "")
+    if len(request_id)<8 or len(request_id)>128: raise HTTPException(400,"Idempotency key required")
+    c=next((dict(x) for x in runtime.get("candidates",[]) if x.get("mint")==mint),None)
+    if not c: raise HTTPException(404,"Token is not in the current scanner window")
+    c["_manual_paper"]=True
+    strategy="PUMP_LONG" if nz(c.get("pump_score"))>=nz(c.get("scalp_score")) else "SCALP_LONG"
+    ok,reason=open_position(c,strategy)
+    if not ok: raise HTTPException(400,reason)
+    p=open_position_for_mint(mint)
+    return _compat_state_data()["positions"][-1] if p else {"ok":True,"mint":mint}
+
+@app.post("/api/paper/close")
+async def compat_paper_close(request: Request):
+    _compat_auth_and_csrf(request)
+    body=await request.json()
+    try: position_id=int(body.get("position_id"))
+    except (TypeError,ValueError): raise HTTPException(400,"Position id required")
+    with SessionLocal() as s:
+        p=s.get(Position,position_id)
+        if not p: raise HTTPException(404,"Open position not found")
+        p_data={k:getattr(p,k) for k in ("id","mint","symbol","strategy","entry_price","last_price","peak_price","initial_notional","remaining_cost","locked_pnl","opened_at","tp1","tp2","tp3")}
+    c=next((dict(x) for x in runtime.get("candidates",[]) if x.get("mint")==p_data["mint"]),None)
+    if not c: raise HTTPException(400,"Fresh matching market data required")
+    close_position(type("CompatPosition",(),p_data)(),c,"MANUAL_EXIT")
+    return {"ok":True,"position_id":str(position_id)}
 
 @app.get("/api/auth-check")
 def auth_check(x_nova_key:Optional[str]=Header(None, alias="X-NOVA-Key")):

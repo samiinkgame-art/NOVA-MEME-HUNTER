@@ -60,7 +60,7 @@ def position():
         return session.scalar(select(nova.Position))
 
 def test_health_and_authenticated_dashboard():
-    assert client.get('/health').json()['version'] == '1.2.1'
+    assert client.get('/health').json()['version'] == '1.3.0'
     assert client.get('/api/dashboard').status_code == 401
     data=client.get('/api/dashboard',headers=headers)
     assert data.status_code == 200, data.text
@@ -170,6 +170,26 @@ def test_concurrent_duplicate_close_only_credits_once(monkeypatch):
         assert len(trades)==1
         assert nova.f('cash')-start==pytest.approx(trades[0].pnl)
 
+def test_current_mobile_contract_round_trip(monkeypatch):
+    c=setup_accounting(monkeypatch)
+    nova.runtime['candidates']=[c]
+    nova.runtime['loop_alive']=True
+    nova.runtime['last_successful_loop']=datetime.now(timezone.utc).isoformat()
+    nova.setv('bot_enabled','false');nova.setv('killed','false')
+    with TestClient(nova.app) as mobile:
+        auth={'Authorization':'Bearer '+os.environ['NOVA_ADMIN_KEY']}
+        csrf=mobile.get('/api/session',headers=auth).json()['csrf']
+        protected={**auth,'X-Nova-CSRF':csrf}
+        state=mobile.get('/api/state',headers=auth)
+        assert state.status_code==200 and state.json()['mode']=='paper'
+        opened=mobile.post('/api/paper/open',headers=protected,json={
+            'mint':c['mint'],'request_id':'mobile-contract-12345678',
+            'acknowledgement':'RESEARCH_ONLY_UNKNOWN_SECURITY'})
+        assert opened.status_code==200, opened.text
+        closed=mobile.post('/api/paper/close',headers=protected,
+                           json={'position_id':opened.json()['id']})
+        assert closed.status_code==200, closed.text
+
 def test_stale_marks_do_not_generate_fictitious_exits(monkeypatch):
     c=setup_accounting(monkeypatch)
     assert nova.open_position(c,'PUMP_LONG')[0]
@@ -219,8 +239,8 @@ def test_rate_limit_opens_circuit_without_repeated_requests():
 
 def test_dashboard_escapes_external_fields_and_labels_paper():
     html=(Path(__file__).resolve().parent.parent/'dashboard'/'index.html').read_text()
-    assert '${esc(x.symbol' in html
-    assert 'START PAPER' in html
-    assert "localStorage.setItem('nova_meme_hunter_admin'" not in html
-    for panel in ('Meme Hunter Universe','Realtime Core','NOVA Decision','Edge Governor','Recent Results'):
+    assert 'generate-key' not in html
+    assert "rawUrl='https://'+rawUrl" in html
+    assert 'type=\"text\"' in html
+    for panel in ('Command center','Live scanner','Paper portfolio','Strategy lab','System health','Trade better.','Protect capital.'):
         assert panel in html
